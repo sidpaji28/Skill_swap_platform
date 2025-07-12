@@ -1,516 +1,984 @@
 import streamlit as st
-import pandas as pd
-from typing import List, Dict, Optional
-import uuid
-from datetime import datetime
-
-# Import our modules
-from matching import match_users, get_skill_similarity
-from moderation import is_spammy, moderate_content
 from database import SupabaseClient
-from schemas import UserProfile, SwapRequest, FeedbackData
-from utils.helpers import format_availability, validate_email, sanitize_input
+from schema_definitions import UserProfile
+from matching import match_users
+from spam_filter import is_spammy
+import base64
+import uuid
 
-# Initialize session state
-if 'user_id' not in st.session_state:
-    st.session_state.user_id = None
-if 'user_name' not in st.session_state:
-    st.session_state.user_name = None
-if 'db' not in st.session_state:
-    st.session_state.db = SupabaseClient()
+# Advanced Dark 3D CSS with stunning effects
+st.markdown("""
+<style>
+    /* Import futuristic fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+    
+    /* Global dark theme with 3D perspective */
+    .stApp {
+        font-family: 'Rajdhani', sans-serif;
+        background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 25%, #16213e 50%, #0f3460 75%, #533483 100%);
+        min-height: 100vh;
+        position: relative;
+        overflow-x: hidden;
+    }
+    
+    /* Futuristic Sidebar with cyberpunk styling */
+    .stSidebar {
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.85) 0%, rgba(26, 26, 46, 0.95) 100%);
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem;
+        box-shadow: 
+            0 20px 40px rgba(0, 0, 0, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        transform: perspective(1000px) rotateY(-5deg);
+        transition: all 0.3s ease;
+        z-index: 2;
+    }
 
-# Page config
-st.set_page_config(
-    page_title="SkillSync - AI-Powered Skill Swap",
-    page_icon="🤝",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    /* Hover effect for sidebar */
+    .stSidebar:hover {
+        transform: perspective(1000px) rotateY(0deg) translateZ(10px);
+        box-shadow: 
+            0 25px 50px rgba(0, 0, 0, 0.7),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 0 30px rgba(0, 245, 255, 0.3);
+    }
+
+    /* Sidebar radio button container */
+    .stSidebar .stRadio > div {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.15) 0%, rgba(255, 0, 255, 0.15) 100%);
+        border: 1px solid rgba(0, 245, 255, 0.3);
+        border-radius: 15px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+        transform: translateZ(0);
+    }
+
+    /* Hover effect for radio button container */
+    .stSidebar .stRadio > div:hover {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.25) 0%, rgba(255, 0, 255, 0.25) 100%);
+        transform: translateZ(10px) scale(1.05);
+        box-shadow: 0 10px 25px rgba(0, 245, 255, 0.3);
+    }
+
+    /* Radio button labels */
+    .stSidebar .stRadio > label {
+        color: #00f5ff;
+        font-family: 'Orbitron', monospace;
+        font-weight: 700;
+        font-size: 1.3rem;
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+        padding: 0.5rem;
+        transition: all 0.3s ease;
+    }
+
+    /* Radio button selected state */
+    .stSidebar .stRadio > div input[type="radio"]:checked + label {
+        color: #ff00ff;
+        text-shadow: 0 0 15px rgba(255, 0, 255, 0.7);
+        transform: scale(1.05);
+    }
+
+    /* Sidebar title */
+    .stSidebar h3 {
+        font-family: 'Orbitron', monospace;
+        color: #00f5ff;
+        font-weight: 900;
+        font-size: 1.8rem;
+        text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+
+    /* Responsive design for sidebar */
+    @media (max-width: 768px) {
+        .stSidebar {
+            padding: 1.5rem;
+            margin: 0.5rem;
+            border-radius: 15px;
+            transform: perspective(1000px) rotateY(0deg);
+        }
+        
+        .stSidebar .stRadio > label {
+            font-size: 1.1rem;
+        }
+        
+        .stSidebar .stRadio > div {
+            padding: 0.75rem;
+        }
+    }
+    
+    /* Floating particles effect */
+    .stApp::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: 
+            radial-gradient(2px 2px at 20px 30px, rgba(255, 255, 255, 0.3), transparent),
+            radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.2), transparent),
+            radial-gradient(1px 1px at 90px 40px, rgba(255, 255, 255, 0.4), transparent),
+            radial-gradient(1px 1px at 130px 80px, rgba(255, 255, 255, 0.2), transparent);
+        background-repeat: repeat;
+        background-size: 75px 100px;
+        animation: sparkle 20s linear infinite;
+        pointer-events: none;
+        z-index: 0;
+    }
+    
+    @keyframes sparkle {
+        0% { transform: translateY(0px); }
+        100% { transform: translateY(-100px); }
+    }
+    
+    /* Main container with 3D glass effect */
+    .main .block-container {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 30px;
+        padding: 3rem;
+        margin: 2rem auto;
+        box-shadow: 
+            0 25px 50px rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 100px rgba(83, 52, 131, 0.3);
+        position: relative;
+        z-index: 1;
+        transform-style: preserve-3d;
+        transition: all 0.3s ease;
+    }
+    
+    .main .block-container:hover {
+        transform: translateY(-5px) rotateX(2deg);
+        box-shadow: 
+            0 35px 70px rgba(0, 0, 0, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 0 120px rgba(83, 52, 131, 0.4);
+    }
+    
+    /* Cinematic title with entrance animation and clean neon glow */
+    .main h1 {
+        font-family: 'Orbitron', monospace;
+        font-weight: 900;
+        font-size: 5rem;
+        color: transparent;
+        background: linear-gradient(45deg, #00f5ff, #ff00ff, #00ff00, #ffff00, #ff0000, #00f5ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        text-align: center;
+        margin: 2rem 0 4rem 0;
+        text-shadow: 0 0 20px rgba(0, 245, 255, 0.8);
+        animation: slideIn 2s ease-out forwards;
+        transform: perspective(1500px) rotateX(25deg) translateZ(50px);
+        filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.8));
+        position: relative;
+        z-index: 3;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+
+    /* Entrance animation for title */
+    @keyframes slideIn {
+        0% {
+            opacity: 0;
+            transform: perspective(1500px) rotateX(25deg) translateZ(50px) translateY(-100px);
+            text-shadow: 0 0 0 rgba(0, 245, 255, 0);
+        }
+        100% {
+            opacity: 1;
+            transform: perspective(1500px) rotateX(25deg) translateZ(50px) translateY(0);
+            text-shadow: 0 0 20px rgba(0, 245, 255, 0.8);
+        }
+    }
+
+    /* Lens flare effect behind the title */
+    .main h1::before {
+        content: '';
+        position: absolute;
+        top: -100%;
+        left: -100%;
+        width: 300%;
+        height: 300%;
+        background: radial-gradient(circle, rgba(0, 245, 255, 0.3) 0%, transparent 60%);
+        opacity: 0;
+        animation: lensFlareEntrance 2s ease-out forwards;
+        z-index: -1;
+        pointer-events: none;
+    }
+
+    @keyframes lensFlareEntrance {
+        0% { opacity: 0; transform: scale(0.5); }
+        50% { opacity: 0.6; transform: scale(1.3); }
+        100% { opacity: 0.4; transform: scale(1); }
+    }
+
+    /* Fallback for Streamlit title */
+    [data-testid="stAppViewContainer"] h1 {
+        font-family: 'Orbitron', monospace;
+        font-weight: 900;
+        font-size: 5rem;
+        color: transparent;
+        background: linear-gradient(45deg, #00f5ff, #ff00ff, #00ff00, #ffff00, #ff0000, #00f5ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        text-align: center;
+        margin: 2rem 0 4rem 0;
+        text-shadow: 0 0 20px rgba(0, 245, 255, 0.8);
+        animation: slideIn 2s ease-out forwards;
+        transform: perspective(1500px) rotateX(25deg) translateZ(50px);
+        filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.8));
+        position: relative;
+        z-index: 3;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+
+    /* Futuristic form styling */
+    .stForm {
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(26, 26, 46, 0.7) 100%);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 25px;
+        padding: 3rem;
+        box-shadow: 
+            0 20px 40px rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        transform: perspective(1000px) rotateX(5deg);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stForm::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent, rgba(0, 245, 255, 0.05), transparent);
+        animation: shimmer 3s infinite;
+        pointer-events: none;
+    }
+    
+    @keyframes shimmer {
+        0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+        100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+    }
+    
+    .stForm:hover {
+        transform: perspective(1000px) rotateX(0deg) translateY(-5px);
+        box-shadow: 
+            0 30px 60px rgba(0, 0, 0, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 0 50px rgba(0, 245, 255, 0.2);
+    }
+    
+    /* Cyberpunk input fields */
+    .stTextInput > div > div > input {
+        background: rgba(0, 0, 0, 0.8);
+        border: 2px solid rgba(0, 245, 255, 0.3);
+        border-radius: 15px;
+        padding: 1rem;
+        font-size: 1.1rem;
+        color: #ffffff;
+        transition: all 0.3s ease;
+        box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #00f5ff;
+        box-shadow: 
+            0 0 20px rgba(0, 245, 255, 0.5),
+            inset 0 2px 10px rgba(0, 0, 0, 0.7);
+        outline: none;
+        transform: scale(1.02);
+    }
+    
+    .stSelectbox > div > div > select {
+        background: rgba(0, 0, 0, 0.8);
+        border: 2px solid rgba(0, 245, 255, 0.3);
+        border-radius: 15px;
+        padding: 1rem;
+        font-size: 1.1rem;
+        color: #ffffff;
+        transition: all 0.3s ease;
+        box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+    
+    .stSelectbox > div > div > select:focus {
+        border-color: #00f5ff;
+        box-shadow: 
+            0 0 20px rgba(0, 245, 255, 0.5),
+            inset 0 2px 10px rgba(0, 0, 0, 0.7);
+        outline: none;
+        transform: scale(1.02);
+    }
+    
+    /* File uploader styling */
+    .stFileUploader > div > div > div > label {
+        color: #00f5ff;
+        font-family: 'Orbitron', monospace;
+        font-weight: 600;
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+    }
+
+    .stFileUploader > div > div > div > button {
+        background: linear-gradient(135deg, #00f5ff 0%, #ff00ff 50%, #00ff00 100%);
+        color: #000000;
+        border: none;
+        border-radius: 15px;
+        padding: 0.8rem 1.5rem;
+        font-size: 1rem;
+        font-weight: 600;
+        font-family: 'Orbitron', monospace;
+        transition: all 0.3s ease;
+        box-shadow: 
+            0 5px 15px rgba(0, 245, 255, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+
+    .stFileUploader > div > div > div > button:hover {
+        transform: translateY(-3px);
+        box-shadow: 
+            0 8px 20px rgba(0, 245, 255, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+    
+    /* Holographic buttons */
+    .stButton > button {
+        background: linear-gradient(135deg, #00f5ff 0%, #ff00ff 50%, #00ff00 100%);
+        color: #000000;
+        border: none;
+        border-radius: 15px;
+        padding: 1rem 2.5rem;
+        font-size: 1.2rem;
+        font-weight: 700;
+        font-family: 'Orbitron', monospace;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 
+            0 10px 30px rgba(0, 245, 255, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        transform: perspective(1000px) rotateX(10deg);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton > button::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        animation: buttonShimmer 2s infinite;
+        pointer-events: none;
+    }
+    
+    @keyframes buttonShimmer {
+        0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+        100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+    }
+    
+    .stButton > button:hover {
+        transform: perspective(1000px) rotateX(0deg) translateY(-5px) scale(1.05);
+        box-shadow: 
+            0 15px 40px rgba(0, 245, 255, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.4),
+            0 0 50px rgba(255, 0, 240, 0.3);
+    }
+    
+    /* Neon subheaders */
+    .main h2 {
+        font-family: 'Orbitron', monospace;
+        color: #00f5ff;
+        font-weight: 700;
+        font-size: 2rem;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid rgba(0, 245, 255, 0.5);
+        text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main h2::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00f5ff, transparent);
+        animation: scanline 2s infinite;
+    }
+    
+    @keyframes scanline {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+    
+    /* Holographic alerts */
+    .stSuccess {
+        background: linear-gradient(135deg, rgba(0, 255, 0, 0.1) 0%, rgba(0, 255, 127, 0.1) 100%);
+        border: 1px solid rgba(0, 255, 0, 0.3);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 30px rgba(0, 255, 0, 0.2);
+        color: #00ff00;
+    }
+    
+    .stError {
+        background: linear-gradient(135deg, rgba(255, 0, 0, 0.1) 0%, rgba(255, 0, 127, 0.1) 100%);
+        border: 1px solid rgba(255, 0, 0, 0.3);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 30px rgba(255, 0, 0, 0.2);
+        color: #ff0066;
+    }
+    
+    .stWarning {
+        background: linear-gradient(135deg, rgba(255, 255, 0, 0.1) 0%, rgba(255, 165, 0, 0.1) 100%);
+        border: 1px solid rgba(255, 255, 0, 0.3);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 30px rgba(255, 255, 0, 0.2);
+        color: #ffff00;
+    }
+    
+    .stInfo {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.1) 0%, rgba(0, 127, 255, 0.1) 100%);
+        border: 1px solid rgba(0, 245, 255, 0.3);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 30px rgba(0, 245, 255, 0.2);
+        color: #00f5ff;
+    }
+    
+    /* 3D Profile cards with holographic effects */
+    .profile-card {
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(26, 26, 46, 0.9) 100%);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 25px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        box-shadow: 
+            0 20px 40px rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        transition: all 0.3s ease;
+        transform: perspective(1000px) rotateX(5deg);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .profile-card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #00f5ff, #ff00ff, #00ff00, #ffff00);
+        border-radius: 25px;
+        z-index: -1;
+        animation: borderGlow 3s infinite;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    
+    .profile-card:hover::before {
+        opacity: 1;
+    }
+    
+    @keyframes borderGlow {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.8; }
+    }
+    
+    .profile-card:hover {
+        transform: perspective(1000px) rotateX(0deg) translateY(-10px) scale(1.02);
+        box-shadow: 
+            0 30px 60px rgba(0, 0, 0, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 0 50px rgba(0, 245, 255, 0.3);
+    }
+    
+    /* Profile photo styling */
+    .profile-photo {
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(0, 245, 255, 0.5);
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
+        margin: 0 auto 1.5rem;
+        display: block;
+        transition: all 0.3s ease;
+    }
+
+    .profile-photo:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 30px rgba(0, 245, 255, 0.7);
+    }
+    
+    /* Epic match cards */
+    .match-card {
+        background: linear-gradient(135deg, rgba(0, 255, 0, 0.1) 0%, rgba(0, 255, 127, 0.1) 100%);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 255, 0, 0.3);
+        border-radius: 25px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        box-shadow: 
+            0 20px 40px rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 30px rgba(0, 255, 0, 0.2);
+        transition: all 0.3s ease;
+        transform: perspective(1000px) rotateX(5deg);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .match-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(0, 255, 0, 0.2), transparent);
+        animation: matchScan 3s infinite;
+        pointer-events: none;
+    }
+    
+    @keyframes matchScan {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
+    
+    .match-card:hover {
+        transform: perspective(1000px) rotateX(0deg) translateY(-10px) scale(1.03);
+        box-shadow: 
+            0 30px 60px rgba(0, 0, 0, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 0 50px rgba(0, 255, 0, 0.4);
+    }
+    
+    /* Neon skill tags */
+    .skill-tag {
+        display: inline-block;
+        background: linear-gradient(135deg, #00f5ff 0%, #ff00ff 100%);
+        color: #000000;
+        padding: 0.5rem 1rem;
+        border-radius: 25px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin: 0.3rem;
+        box-shadow: 
+            0 5px 15px rgba(0, 245, 255, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        transition: all 0.3s ease;
+        transform: perspective(1000px) rotateX(10deg);
+    }
+    
+    .skill-tag:hover {
+        transform: perspective(1000px) rotateX(0deg) translateY(-3px) scale(1.1);
+        box-shadow: 
+            0 8px 25px rgba(0, 245, 255, 0.6),
+            inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+    
+    /* Holographic match score */
+    .match-score {
+        background: linear-gradient(135deg, #00ff00 0%, #00ffff 100%);
+        color: #000000;
+        padding: 1rem 2rem;
+        border-radius: 30px;
+        font-weight: 700;
+        font-size: 1.3rem;
+        font-family: 'Orbitron', monospace;
+        display: inline-block;
+        box-shadow: 
+            0 10px 30px rgba(0, 255, 0, 0.4),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        transform: perspective(1000px) rotateX(10deg);
+    }
+    
+    /* Neon dividers */
+    hr {
+        border: none;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00f5ff, #ff00ff, #00f5ff, transparent);
+        margin: 3rem 0;
+        border-radius: 2px;
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
+    }
+    
+    /* Form labels with neon styling */
+    .stForm label {
+        font-weight: 600;
+        color: #00f5ff;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+    }
+    
+    /* Checkbox styling */
+    .stCheckbox > label {
+        color: #00f5ff;
+        font-weight: 500;
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.3);
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding: 2rem;
+            margin: 1rem;
+        }
+        
+        .main h1 {
+            font-size: 3.2rem;
+            margin: 1.5rem 0 3rem 0;
+        }
+        
+        .profile-card, .match-card {
+            padding: 1.5rem;
+            transform: perspective(1000px) rotateX(2deg);
+        }
+
+        .profile-photo {
+            width: 100px;
+            height: 100px;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+db = SupabaseClient()
+st.set_page_config(page_title="SkillSwap", layout="centered")
+
+# Add a sidebar title for better UX
+st.sidebar.header("SkillSwap Menu")
+
+# Main title
+st.title("🔁 SkillSwap Platform")
+
+# Add a cinematic subtitle
+st.markdown(
+    '<h2 style="font-family: \'Orbitron\', monospace; color: #00f5ff; text-align: center; text-shadow: 0 0 15px rgba(0, 245, 255, 0.7); font-size: 1.8rem; margin-top: -2rem;">Connect. Learn. Swap Skills.</h2>',
+    unsafe_allow_html=True
 )
 
-def main():
-    st.title("🤝 SkillSync: AI-Powered Skill Swap Platform")
-    st.markdown("*Find the perfect skill match and grow together!*")
-    
-    # Sidebar for navigation
-    with st.sidebar:
-        st.header("Navigation")
-        if st.session_state.user_id:
-            st.success(f"Welcome, {st.session_state.user_name}!")
-            page = st.selectbox(
-                "Go to:",
-                ["🏠 Dashboard", "🔍 Find Matches", "📝 My Profile", "💬 My Swaps", "⭐ Feedback", "🚪 Logout"]
-            )
-        else:
-            page = st.selectbox(
-                "Choose:",
-                ["🔐 Login", "📝 Sign Up", "ℹ️ About"]
-            )
-    
-    # Route to different pages
-    if not st.session_state.user_id:
-        if page == "🔐 Login":
-            login_page()
-        elif page == "📝 Sign Up":
-            signup_page()
-        else:
-            about_page()
+menu = st.sidebar.radio("Navigate", ["Dashboard", "Register", "Login", "Explore Matches", "Browse Skills"])
+
+# ----------------------------
+# DASHBOARD PAGE
+# ----------------------------
+if menu == "Dashboard":
+    st.subheader("Your SkillSwap Dashboard")
+    if "user" not in st.session_state:
+        st.warning("Please log in to view your dashboard.")
     else:
-        if page == "🏠 Dashboard":
-            dashboard_page()
-        elif page == "🔍 Find Matches":
-            find_matches_page()
-        elif page == "📝 My Profile":
-            profile_page()
-        elif page == "💬 My Swaps":
-            swaps_page()
-        elif page == "⭐ Feedback":
-            feedback_page()
-        elif page == "🚪 Logout":
-            logout()
+        user = st.session_state["user"]
 
-def login_page():
-    st.header("🔐 Login")
-    
-    with st.form("login_form"):
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("Login")
-        
-        if submit:
-            if not validate_email(email):
-                st.error("Please enter a valid email address")
-                return
-            
-            # Simulate login (in real app, use Supabase auth)
-            user = st.session_state.db.authenticate_user(email, password)
-            if user:
-                st.session_state.user_id = user['id']
-                st.session_state.user_name = user['name']
-                st.success("Login successful!")
-                st.rerun()
+        # Display profile photo
+        profile_photo_url = user.get("profile_photo_url", None)
+        if profile_photo_url:
+            st.markdown(
+                f'<img src="{profile_photo_url}" class="profile-photo" alt="Profile Photo">',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div style="width: 150px; height: 150px; border-radius: 50%; background: rgba(0, 245, 255, 0.2); margin: 0 auto 1.5rem; display: flex; align-items: center; justify-content: center; color: #00f5ff; font-family: \'Orbitron\', monospace; text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);">No Photo</div>',
+                unsafe_allow_html=True
+            )
+
+        # Display user credentials
+        st.markdown(f"""
+        <div class="profile-card">
+            <h3 style="color: #00f5ff; margin-bottom: 1.5rem; font-family: 'Orbitron', monospace; text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);">🎯 {user.get('name', 'Unnamed')}</h3>
+            <p style="color: #ffffff; margin-bottom: 1rem; font-size: 1.1rem;"><strong>📧 Email:</strong> <span style="color: #00ffff;">{user.get('email', 'N/A')}</span></p>
+            <p style="color: #ffffff; margin-bottom: 1rem; font-size: 1.1rem;"><strong>📍 Location:</strong> <span style="color: #00ffff;">{user.get('location', 'Unknown')}</span></p>
+            <p style="color: #ffffff; margin-bottom: 1rem; font-size: 1.1rem;"><strong>🕒 Availability:</strong> <span style="color: #00ffff;">{user.get('availability', 'N/A')}</span></p>
+            <p style="margin-bottom: 1rem; color: #ffffff; font-size: 1.1rem;"><strong>🛠️ Skills Offered:</strong><br>
+                {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in user.get('skills_offered', [])])}
+            </p>
+            <p style="margin-bottom: 1rem; color: #ffffff; font-size: 1.1rem;"><strong>🎯 Skills Wanted:</strong><br>
+                {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in user.get('skills_wanted', [])])}
+            </p>
+            <p style="color: #00ff00; font-weight: 600; text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);"><strong>🌐 Profile Visibility:</strong> {'Public' if user.get('is_public', False) else 'Private'}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Profile photo upload
+        st.subheader("Update Profile Photo")
+        with st.form("photo_upload_form"):
+            uploaded_file = st.file_uploader("Upload Profile Photo (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
+            submit_photo = st.form_submit_button("Upload Photo")
+
+        if submit_photo and uploaded_file is not None:
+            try:
+                # Check if storage bucket exists
+                bucket = "profile_photos"
+                try:
+                    db.client.storage.from_(bucket).list()
+                except Exception as e:
+                    if "Bucket not found" in str(e):
+                        st.error("Storage bucket 'profile_photos' not found. Please create it in Supabase Storage.")
+                    else:
+                        st.error(f"Error accessing storage bucket: {str(e)}")
+                    raise Exception("Bucket check failed")
+
+                # Generate a unique filename
+                file_extension = uploaded_file.name.split('.')[-1]
+                file_name = f"{uuid.uuid4()}.{file_extension}"
+                
+                # Read file bytes
+                file_bytes = uploaded_file.read()
+                
+                # Upload to Supabase Storage
+                db.client.storage.from_(bucket).upload(file_name, file_bytes, file_options={"content-type": f"image/{file_extension}"})
+                
+                # Get public URL
+                photo_url = db.client.storage.from_(bucket).get_public_url(file_name)
+                
+                # Update user profile with photo URL
+                updated_profile = UserProfile(
+                    name=user.get('name'),
+                    email=user.get('email'),
+                    password="",  # Password not needed for update
+                    location=user.get('location', ''),
+                    availability=user.get('availability', ''),
+                    is_public=user.get('is_public', False),
+                    skills_offered=user.get('skills_offered', []),
+                    skills_wanted=user.get('skills_wanted', []),
+                    profile_photo_url=photo_url
+                )
+                success = db.update_user(user.get('id'), updated_profile)
+                
+                if success:
+                    # Update session state
+                    user['profile_photo_url'] = photo_url
+                    st.session_state["user"] = user
+                    st.success("Profile photo updated successfully!")
+                    st.rerun()  # Rerun to refresh the displayed photo
+                else:
+                    st.error("Failed to update profile photo.")
+            except Exception as e:
+                st.error(f"Error uploading photo: {str(e)}")
+
+        # Add skills form
+        st.subheader("Add New Skills")
+        with st.form("add_skills_form"):
+            new_skills_offered = st.text_input("Add Skills You Offer (comma-separated, e.g., Python, Design)")
+            new_skills_wanted = st.text_input("Add Skills You Want to Learn (comma-separated, e.g., JavaScript, Cooking)")
+            submit_skills = st.form_submit_button("Add Skills")
+
+        if submit_skills:
+            if not new_skills_offered and not new_skills_wanted:
+                st.error("Please enter at least one skill to add.")
             else:
-                st.error("Invalid credentials")
+                try:
+                    # Get current skills from user_skills table
+                    user_id = user.get('id')
+                    response = db.client.table('user_skills').select('skill, type').eq('user_id', user_id).execute()
+                    current_skills = response.data if response.data else []
+                    current_skills_offered = [s['skill'] for s in current_skills if s['type'] == 'offered']
+                    current_skills_wanted = [s['skill'] for s in current_skills if s['type'] == 'wanted']
+                    
+                    # Parse and clean new skills
+                    new_offered = [s.strip() for s in new_skills_offered.split(",") if s.strip()] if new_skills_offered else []
+                    new_wanted = [s.strip() for s in new_skills_wanted.split(",") if s.strip()] if new_skills_wanted else []
+                    
+                    # Check for spam
+                    if is_spammy(" ".join(new_offered + new_wanted)):
+                        st.error("Skills content seems spammy. Please revise.")
+                    else:
+                        # Filter out duplicates (case-insensitive)
+                        new_offered = [s for s in new_offered if s.lower() not in [x.lower() for x in current_skills_offered]]
+                        new_wanted = [s for s in new_wanted if s.lower() not in [x.lower() for x in current_skills_wanted]]
+                        
+                        # Prepare records for insertion
+                        skills_to_insert = []
+                        for skill in new_offered:
+                            skills_to_insert.append({
+                                'user_id': user_id,
+                                'type': 'offered',
+                                'skill': skill
+                            })
+                        for skill in new_wanted:
+                            skills_to_insert.append({
+                                'user_id': user_id,
+                                'type': 'wanted',
+                                'skill': skill
+                            })
+                        
+                        # Insert new skills into user_skills table
+                        if skills_to_insert:
+                            response = db.client.table('user_skills').insert(skills_to_insert).execute()
+                            if response.data:
+                                # Update session state
+                                user['skills_offered'] = current_skills_offered + new_offered
+                                user['skills_wanted'] = current_skills_wanted + new_wanted
+                                st.session_state["user"] = user
+                                st.success("Skills added successfully!")
+                                st.rerun()  # Rerun to refresh the displayed skills
+                            else:
+                                st.error("Failed to add skills to the database.")
+                        else:
+                            st.info("No new skills to add (all entered skills already exist).")
+                except Exception as e:
+                    st.error(f"Error adding skills: {str(e)}")
 
-def signup_page():
-    st.header("📝 Sign Up")
-    
-    with st.form("signup_form"):
+# ----------------------------
+# REGISTER PAGE
+# ----------------------------
+elif menu == "Register":
+    st.subheader("Create a New Profile")
+    with st.form("register_form"):
         name = st.text_input("Full Name")
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
-        location = st.text_input("Location (optional)")
-        
-        st.subheader("Skills")
-        skills_offered = st.text_area("Skills you can offer (comma-separated)", 
-                                     placeholder="e.g., Photoshop, Web Design, Python")
-        skills_wanted = st.text_area("Skills you want to learn (comma-separated)",
-                                    placeholder="e.g., Excel, Marketing, Guitar")
-        
-        availability = st.multiselect(
-            "When are you available?",
-            ["Morning", "Afternoon", "Evening", "Weekends", "Weekdays"]
-        )
-        
-        is_public = st.checkbox("Make my profile public", value=True)
-        
-        submit = st.form_submit_button("Create Account")
-        
-        if submit:
-            # Validate inputs
-            if not name or not email or not password:
-                st.error("Please fill in all required fields")
-                return
-            
-            if not validate_email(email):
-                st.error("Please enter a valid email address")
-                return
-            
-            # Check for spam/toxicity
-            if is_spammy(skills_offered) or is_spammy(skills_wanted):
-                st.error("⚠️ Inappropriate or spammy content detected. Please revise your skills.")
-                return
-            
-            # Create user profile
-            user_profile = UserProfile(
-                name=sanitize_input(name),
+        location = st.text_input("Location (Optional)")
+        availability = st.selectbox("Availability", ["Mornings", "Evenings", "Weekends"])
+        skills_offered = st.text_input("Skills You Offer (comma-separated)")
+        skills_wanted = st.text_input("Skills You Want to Learn (comma-separated)")
+        is_public = st.checkbox("Make profile public", value=True)
+        submit = st.form_submit_button("Register")
+
+    if submit:
+        if is_spammy(name + " " + email + " " + skills_offered + " " + skills_wanted):
+            st.error("Profile content seems spammy. Please revise.")
+        else:
+            profile = UserProfile(
+                name=name,
+                password=password,
                 email=email,
-                location=sanitize_input(location) if location else None,
+                location=location,
+                availability=availability,
+                is_public=is_public,
                 skills_offered=[s.strip() for s in skills_offered.split(",") if s.strip()],
                 skills_wanted=[s.strip() for s in skills_wanted.split(",") if s.strip()],
-                availability=format_availability(availability),
-                is_public=is_public
+                profile_photo_url=""
             )
-            
-            # Save to database
-            user_id = st.session_state.db.create_user(user_profile)
+            user_id = db.create_user(profile, password)
             if user_id:
-                st.session_state.user_id = user_id
-                st.session_state.user_name = name
-                st.success("Account created successfully!")
-                st.rerun()
+                st.success(f"User created with ID: {user_id}")
             else:
-                st.error("Failed to create account. Email might already exist.")
+                st.error("Registration failed. Try again.")
 
-def dashboard_page():
-    st.header("🏠 Dashboard")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Active Swaps", "3", "1")
-    
-    with col2:
-        st.metric("Completed Swaps", "12", "2")
-    
-    with col3:
-        st.metric("Rating", "4.8⭐", "0.1")
-    
-    st.subheader("🔥 Recent Activity")
-    
-    # Get recent swaps
-    recent_swaps = st.session_state.db.get_user_swaps(st.session_state.user_id, limit=5)
-    
-    if recent_swaps:
-        for swap in recent_swaps:
-            with st.expander(f"Swap: {swap['skill_offered']} ↔ {swap['skill_requested']}"):
-                st.write(f"Status: {swap['status'].title()}")
-                st.write(f"Partner: {swap['partner_name']}")
-                st.write(f"Created: {swap['created_at']}")
+# ----------------------------
+# LOGIN PAGE
+# ----------------------------
+elif menu == "Login":
+    st.subheader("Login to SkillSwap")
+    with st.form("login_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        login = st.form_submit_button("Login")
+
+    if login:
+        user = db.authenticate_user(email, password)
+        if user:
+            st.success(f"Welcome, {user.get('name', 'User')}!")
+            st.session_state["user"] = user
+        else:
+            st.error("Login failed. Check credentials.")
+
+# ----------------------------
+# EXPLORE MATCHES
+# ----------------------------
+elif menu == "Explore Matches":
+    st.subheader("Find Skill Matches")
+    if "user" not in st.session_state:
+        st.warning("Please log in first.")
     else:
-        st.info("No recent activity. Start by finding matches!")
-    
-    st.subheader("💡 Quick Actions")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔍 Find New Matches", use_container_width=True):
-            st.switch_page("find_matches")
-    
-    with col2:
-        if st.button("📝 Update Profile", use_container_width=True):
-            st.switch_page("profile")
+        current_user = st.session_state["user"]
 
-def find_matches_page():
-    st.header("🔍 Find Perfect Matches")
-    
-    # Get current user's profile
-    user_profile = st.session_state.db.get_user_profile(st.session_state.user_id)
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Search Filters")
-        
-        skill_filter = st.selectbox(
-            "Looking for:",
-            ["All Skills"] + user_profile['skills_wanted']
-        )
-        
-        location_filter = st.text_input("Location (optional)")
-        
-        availability_filter = st.multiselect(
-            "Availability:",
-            ["Morning", "Afternoon", "Evening", "Weekends", "Weekdays"]
-        )
-        
-        min_rating = st.slider("Minimum Rating", 0.0, 5.0, 0.0, 0.5)
-        
-        search_button = st.button("🔍 Search Matches", use_container_width=True)
-    
-    with col2:
-        st.subheader("✨ AI-Powered Matches")
-        
-        if search_button or 'matches' not in st.session_state:
-            with st.spinner("Finding your perfect matches..."):
-                # Get all users
-                all_users = st.session_state.db.get_all_users(exclude_id=st.session_state.user_id)
-                
-                # Apply filters
-                filtered_users = []
-                for user in all_users:
-                    if not user['is_public']:
-                        continue
-                    
-                    if skill_filter != "All Skills":
-                        if skill_filter not in user['skills_offered']:
-                            continue
-                    
-                    if location_filter:
-                        if location_filter.lower() not in user['location'].lower():
-                            continue
-                    
-                    filtered_users.append(user)
-                
-                # Get AI matches
-                matches = match_users(user_profile['skills_wanted'], filtered_users)
-                st.session_state.matches = matches
-        
-        # Display matches
-        if 'matches' in st.session_state:
-            for user, score in st.session_state.matches:
-                with st.container():
-                    st.markdown("---")
-                    
-                    col_avatar, col_info, col_action = st.columns([1, 3, 1])
-                    
-                    with col_avatar:
-                        st.markdown(f"### 👤")
-                        st.markdown(f"**{score:.0%}** match")
-                    
-                    with col_info:
-                        st.markdown(f"**{user['name']}**")
-                        st.markdown(f"📍 {user['location']}")
-                        st.markdown(f"🕒 {user['availability']}")
-                        
-                        # Show matching skills
-                        matching_skills = []
-                        for wanted in user_profile['skills_wanted']:
-                            for offered in user['skills_offered']:
-                                similarity = get_skill_similarity(wanted, offered)
-                                if similarity > 0.5:
-                                    matching_skills.append(f"{wanted} ↔ {offered}")
-                        
-                        if matching_skills:
-                            st.markdown("🎯 **Matching Skills:**")
-                            for skill in matching_skills[:3]:
-                                st.markdown(f"• {skill}")
-                    
-                    with col_action:
-                        if st.button(f"💬 Request Swap", key=f"swap_{user['id']}"):
-                            st.session_state.selected_user = user
-                            st.session_state.show_swap_modal = True
-        
-        # Swap request modal
-        if st.session_state.get('show_swap_modal', False):
-            show_swap_request_modal()
+        # Safely get skills_wanted
+        skills_wanted = current_user.get("skills_wanted", [])
+        if not isinstance(skills_wanted, list):
+            skills_wanted = []
 
-def show_swap_request_modal():
-    st.subheader("📩 Send Swap Request")
-    
-    user = st.session_state.selected_user
-    user_profile = st.session_state.db.get_user_profile(st.session_state.user_id)
-    
-    with st.form("swap_request_form"):
-        st.write(f"Requesting swap with: **{user['name']}**")
-        
-        my_skill = st.selectbox(
-            "Your skill to offer:",
-            user_profile['skills_offered']
-        )
-        
-        their_skill = st.selectbox(
-            "Skill you want to learn:",
-            user['skills_offered']
-        )
-        
-        message = st.text_area(
-            "Message (optional):",
-            placeholder="Hi! I'd love to learn from you..."
-        )
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.form_submit_button("Send Request", use_container_width=True):
-                if is_spammy(message):
-                    st.error("⚠️ Inappropriate message detected")
-                else:
-                    swap_request = SwapRequest(
-                        from_user_id=st.session_state.user_id,
-                        to_user_id=user['id'],
-                        skill_offered=my_skill,
-                        skill_requested=their_skill,
-                        message=message
-                    )
-                    
-                    if st.session_state.db.create_swap_request(swap_request):
-                        st.success("Swap request sent!")
-                        st.session_state.show_swap_modal = False
-                        st.rerun()
-                    else:
-                        st.error("Failed to send request")
-        
-        with col2:
-            if st.form_submit_button("Cancel", use_container_width=True):
-                st.session_state.show_swap_modal = False
-                st.rerun()
+        all_users = db.get_all_users(exclude_id=current_user.get("id"))
+        matches = match_users(skills_wanted, all_users)
 
-def profile_page():
-    st.header("📝 My Profile")
-    
-    user_profile = st.session_state.db.get_user_profile(st.session_state.user_id)
-    
-    with st.form("profile_form"):
-        name = st.text_input("Name", value=user_profile['name'])
-        location = st.text_input("Location", value=user_profile['location'] or "")
-        
-        skills_offered = st.text_area(
-            "Skills I can offer:",
-            value=", ".join(user_profile['skills_offered'])
-        )
-        
-        skills_wanted = st.text_area(
-            "Skills I want to learn:",
-            value=", ".join(user_profile['skills_wanted'])
-        )
-        
-        availability = st.multiselect(
-            "Availability:",
-            ["Morning", "Afternoon", "Evening", "Weekends", "Weekdays"],
-            default=user_profile['availability'].split(", ") if user_profile['availability'] else []
-        )
-        
-        is_public = st.checkbox("Make profile public", value=user_profile['is_public'])
-        
-        if st.form_submit_button("Update Profile"):
-            # Validate content
-            if is_spammy(skills_offered) or is_spammy(skills_wanted):
-                st.error("⚠️ Inappropriate content detected")
-                return
-            
-            updated_profile = UserProfile(
-                name=sanitize_input(name),
-                email=user_profile['email'],
-                location=sanitize_input(location) if location else None,
-                skills_offered=[s.strip() for s in skills_offered.split(",") if s.strip()],
-                skills_wanted=[s.strip() for s in skills_wanted.split(",") if s.strip()],
-                availability=format_availability(availability),
-                is_public=is_public
-            )
-            
-            if st.session_state.db.update_user_profile(st.session_state.user_id, updated_profile):
-                st.success("Profile updated successfully!")
-                st.rerun()
-            else:
-                st.error("Failed to update profile")
+        if not matches:
+            st.info("No good matches found yet. Try updating your profile.")
+        else:
+            for match, score in matches:
+                st.markdown(f"""
+                <div class="match-card">
+                    <h3 style="color: #00f5ff; margin-bottom: 1.5rem; font-family: 'Orbitron', monospace; text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);">⚡ {match.get('name', 'Unnamed')}</h3>
+                    <p style="color: #ffffff; margin-bottom: 1rem; font-size: 1.1rem;"><strong>📍 Location:</strong> <span style="color: #00ffff;">{match.get('location', 'Unknown')}</span></p>
+                    <p style="margin-bottom: 1rem; color: #ffffff; font-size: 1.1rem;"><strong>🛠️ Offers:</strong><br>
+                        {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in match.get('skills_offered', [])])}
+                    </p>
+                    <p style="margin-bottom: 2rem; color: #ffffff; font-size: 1.1rem;"><strong>🎯 Wants:</strong><br>
+                        {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in match.get('skills_wanted', [])])}
+                    </p>
+                    <div style="text-align: center;">
+                        <span class="match-score">🚀 Match Score: {round(score * 100, 2)}%</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-def swaps_page():
-    st.header("💬 My Swaps")
-    
-    tab1, tab2, tab3 = st.tabs(["📥 Received", "📤 Sent", "✅ Completed"])
-    
-    with tab1:
-        st.subheader("Requests received")
-        received_swaps = st.session_state.db.get_received_swaps(st.session_state.user_id)
-        
-        for swap in received_swaps:
-            if swap['status'] == 'pending':
-                with st.expander(f"From {swap['from_user_name']}: {swap['skill_offered']} ↔ {swap['skill_requested']}"):
-                    st.write(f"Message: {swap.get('message', 'No message')}")
-                    st.write(f"Received: {swap['created_at']}")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button(f"✅ Accept", key=f"accept_{swap['id']}"):
-                            st.session_state.db.update_swap_status(swap['id'], 'accepted')
-                            st.success("Swap accepted!")
-                            st.rerun()
-                    
-                    with col2:
-                        if st.button(f"❌ Reject", key=f"reject_{swap['id']}"):
-                            st.session_state.db.update_swap_status(swap['id'], 'rejected')
-                            st.info("Swap rejected")
-                            st.rerun()
-    
-    with tab2:
-        st.subheader("Requests sent")
-        sent_swaps = st.session_state.db.get_sent_swaps(st.session_state.user_id)
-        
-        for swap in sent_swaps:
-            status_emoji = {"pending": "⏳", "accepted": "✅", "rejected": "❌"}
-            st.write(f"{status_emoji[swap['status']]} **{swap['to_user_name']}** - {swap['skill_offered']} ↔ {swap['skill_requested']}")
-    
-    with tab3:
-        st.subheader("Completed swaps")
-        completed_swaps = st.session_state.db.get_completed_swaps(st.session_state.user_id)
-        
-        for swap in completed_swaps:
-            st.write(f"✅ **{swap['partner_name']}** - {swap['skill_offered']} ↔ {swap['skill_requested']}")
+# ----------------------------
+# BROWSE ALL PUBLIC PROFILES
+# ----------------------------
+elif menu == "Browse Skills":
+    st.subheader("🌍 Explore Public Skill Profiles")
+    search_query = st.text_input("Search by Skills (comma-separated, e.g., Python, Design)")
+    users = db.get_all_users()
+    public_users = [u for u in users if u.get("is_public", False)]
 
-def feedback_page():
-    st.header("⭐ Feedback")
-    
-    st.subheader("Leave Feedback")
-    
-    completed_swaps = st.session_state.db.get_completed_swaps(st.session_state.user_id)
-    unfeedback_swaps = [s for s in completed_swaps if not s.get('feedback_given')]
-    
-    if unfeedback_swaps:
-        selected_swap = st.selectbox(
-            "Select swap to review:",
-            unfeedback_swaps,
-            format_func=lambda x: f"{x['partner_name']} - {x['skill_offered']} ↔ {x['skill_requested']}"
-        )
-        
-        with st.form("feedback_form"):
-            rating = st.slider("Rating", 1, 5, 5)
-            comment = st.text_area("Comment (optional)")
-            
-            if st.form_submit_button("Submit Feedback"):
-                if is_spammy(comment):
-                    st.error("⚠️ Inappropriate comment detected")
-                else:
-                    feedback = FeedbackData(
-                        swap_id=selected_swap['id'],
-                        from_user_id=st.session_state.user_id,
-                        to_user_id=selected_swap['partner_id'],
-                        rating=rating,
-                        comment=comment
-                    )
-                    
-                    if st.session_state.db.create_feedback(feedback):
-                        st.success("Feedback submitted!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to submit feedback")
+    # Filter users based on search query
+    if search_query:
+        search_terms = [term.strip().lower() for term in search_query.split(",") if term.strip()]
+        filtered_users = []
+        for user in public_users:
+            skills_offered = [s.lower() for s in user.get("skills_offered", [])]
+            skills_wanted = [s.lower() for s in user.get("skills_wanted", [])]
+            if any(term in skills_offered or term in skills_wanted for term in search_terms):
+                filtered_users.append(user)
+        public_users = filtered_users
+
+    if not public_users:
+        st.info("No public profiles match your search.")
     else:
-        st.info("No completed swaps to review")
-    
-    st.subheader("Received Feedback")
-    
-    feedback_received = st.session_state.db.get_user_feedback(st.session_state.user_id)
-    
-    if feedback_received:
-        for feedback in feedback_received:
-            st.write(f"⭐ **{feedback['rating']}/5** from {feedback['from_user_name']}")
-            if feedback['comment']:
-                st.write(f"*{feedback['comment']}*")
-            st.write("---")
-    else:
-        st.info("No feedback received yet")
-
-def about_page():
-    st.header("ℹ️ About SkillSync")
-    
-    st.markdown("""
-    **SkillSync** is an AI-powered platform that helps you exchange skills with others in your community.
-    
-    ### 🎯 How it works:
-    1. **Sign up** and list your skills
-    2. **Browse** other users' profiles
-    3. **Match** with compatible skill partners using AI
-    4. **Exchange** skills and learn together
-    5. **Rate** your experience and build reputation
-    
-    ### 🤖 AI Features:
-    - **Smart Matching**: Our AI finds the best skill matches for you
-    - **Spam Detection**: Automatic content moderation keeps the platform safe
-    - **Skill Similarity**: Advanced algorithms understand skill relationships
-    
-    ### 🔒 Privacy & Safety:
-    - Control your profile visibility
-    - Report inappropriate content
-    - Secure authentication
-    
-    Ready to start swapping skills? Sign up now!
-    """)
-
-def logout():
-    st.session_state.user_id = None
-    st.session_state.user_name = None
-    st.session_state.clear()
-    st.rerun()
-
-if __name__ == "__main__":
-    main()
+        for user in public_users:
+            profile_photo_url = user.get("profile_photo_url", None)
+            photo_html = f'<img src="{profile_photo_url}" class="profile-photo" alt="Profile Photo">' if profile_photo_url else '<div style="width: 150px; height: 150px; border-radius: 50%; background: rgba(0, 245, 255, 0.2); margin: 0 auto 1.5rem; display: flex; align-items: center; justify-content: center; color: #00f5ff; font-family: \'Orbitron\', monospace; text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);">No Photo</div>'
+            st.markdown(f"""
+            <div class="profile-card">
+                {photo_html}
+                <h3 style="color: #00f5ff; margin-bottom: 1.5rem; font-family: 'Orbitron', monospace; text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);">🎯 {user.get('name', 'Unnamed')}</h3>
+                <p style="color: #ffffff; margin-bottom: 1rem; font-size: 1.1rem;"><strong>📍 Location:</strong> <span style="color: #00ffff;">{user.get('location', 'Unknown')}</span></p>
+                <p style="margin-bottom: 1rem; color: #ffffff; font-size: 1.1rem;"><strong>🛠️ Offers:</strong><br>
+                    {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in user.get('skills_offered', [])])}
+                </p>
+                <p style="margin-bottom: 1rem; color: #ffffff; font-size: 1.1rem;"><strong>🎯 Wants:</strong><br>
+                    {' '.join([f'<span class="skill-tag">{skill}</span>' for skill in user.get('skills_wanted', [])])}
+                </p>
+                <p style="color: #00ff00; font-weight: 600; text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);"><strong>🕒 Availability:</strong> {user.get('availability', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
